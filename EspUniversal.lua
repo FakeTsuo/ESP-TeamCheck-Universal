@@ -1,30 +1,31 @@
--- PRISON LIFE ULTIMATE (Delta) - ESP + Auto + Speed + Fly + Teleport
--- by Copilot
+-- Prison Life Script Ultimate (Delta/KRNL/Synapse)
+-- ESP modular, Auto Kill (FUNCIONAL), Auto Arrest, Auto Gun (com touch e remote), interface de botões
 
--- Remove interface antiga
-pcall(function() game:GetService("CoreGui")["SimpleESP_GUI"]:Destroy() end)
+-- REMOVE INTERFACE ANTIGA
+pcall(function() game:GetService("CoreGui")["PLifeUltimateGUI"]:Destroy() end)
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
 local RunService = game:GetService("RunService")
 local Replicated = game:GetService("ReplicatedStorage")
-local UIS = game:GetService("UserInputService")
 
--- Interface
+-- INTERFACE
 local gui = Instance.new("ScreenGui", game:GetService("CoreGui"))
-gui.Name = "SimpleESP_GUI"
+gui.Name = "PLifeUltimateGUI"
 local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.new(0,260,0,430)
-frame.Position = UDim2.new(0,20,0,150)
+frame.Size = UDim2.new(0,230,0,390)
+frame.Position = UDim2.new(0,20,0,180)
 frame.BackgroundColor3 = Color3.fromRGB(40,40,40)
 frame.Active = true
 frame.Draggable = true
 
 local function makeBtn(txt, y)
-    local b = Instance.new("TextButton", frame)
-    b.Size = UDim2.new(0,230,0,36)
-    b.Position = UDim2.new(0,15,0,y)
+    local b = Instance.new("TextButton")
+    b.Parent = frame
+    b.Size = UDim2.new(0,210,0,36)
+    b.Position = UDim2.new(0,10,0,y)
     b.BackgroundColor3 = Color3.fromRGB(35,35,35)
     b.TextColor3 = Color3.new(1,1,1)
     b.Font = Enum.Font.SourceSansBold
@@ -32,26 +33,28 @@ local function makeBtn(txt, y)
     b.Text = txt
     return b
 end
-local btnNome = makeBtn("ESP Nome: ON",10)
-local btnCaixa = makeBtn("ESP Caixa: ON",56)
-local btnLinha = makeBtn("ESP Linha: ON",102)
-local btnTeam = makeBtn("Team Check: ON",148)
-local btnAutoKill = makeBtn("Auto Kill: OFF",194)
-local btnAutoArrest = makeBtn("Auto Arrest: OFF", 240)
-local btnAutoGun = makeBtn("Auto Gun: OFF", 286)
-local btnSpeed = makeBtn("Speed: OFF", 332)
-local btnFly = makeBtn("Fly: OFF", 378)
-local btnTeleport = makeBtn("Teleport: Click to Mark", 424)
+local btnNome      = makeBtn("ESP Nome: ON",10)
+local btnCaixa     = makeBtn("ESP Caixa: ON",56)
+local btnLinha     = makeBtn("ESP Linha: ON",102)
+local btnTeam      = makeBtn("Team Check: ON",148)
+local btnAutoKill  = makeBtn("Auto Kill: OFF",194)
+local btnAutoArrest= makeBtn("Auto Arrest: OFF",240)
+local btnAutoGun   = makeBtn("Auto Gun: OFF",286)
 
--- Estados
+local status = Instance.new("TextLabel", frame)
+status.Size = UDim2.new(0,210,0,26)
+status.Position = UDim2.new(0,10,0,332)
+status.BackgroundTransparency = 1
+status.Text = "Status: Ativo"
+status.TextColor3 = Color3.new(1,1,1)
+status.Font = Enum.Font.SourceSans
+status.TextSize = 16
+
+-- ESTADOS
 local showNome, showCaixa, showLinha, teamCheck = true, true, true, true
 local autoKill, autoArrest, autoGun = false, false, false
-local speedActive, flyActive = false, false
-local walkSpeed = 35 -- ajuste aqui
-local flySpeed = 3
-local teleportPos = nil
 
--- Utils
+-- UTILS
 local function getTeamColor(plr)
     if plr.Team and plr.Team.TeamColor then
         local c = plr.Team.TeamColor.Color
@@ -60,7 +63,7 @@ local function getTeamColor(plr)
     return Color3.new(1,0,0)
 end
 
--- ESP
+-- ESP (Drawing API)
 local ESPObjects = {}
 function clearESP()
     for _,objs in pairs(ESPObjects) do
@@ -97,39 +100,40 @@ function removeDrawingESP(plr)
     end
 end
 
--- Função de pegar armas automaticamente
-function takeGuns()
-    local guns = {"Remington 870","AK-47","M9"}
-    for _,gun in ipairs(guns) do
-        Replicated.ItemHandler:InvokeServer(gun)
-    end
-end
-
--- Função de auto kill
-function killPlayer(target)
-    local gun
-    for _,i in ipairs(LocalPlayer.Backpack:GetChildren()) do
-        if i.Name:find("Remington") or i.Name:find("AK") or i.Name:find("M9") then
-            gun = i; break
+-- AUTO KILL (FUNCIONAL)
+local function getEquippedGun()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    for _,v in pairs(char:GetChildren()) do
+        if v:IsA("Tool") and (v.Name:find("Remington") or v.Name:find("AK") or v.Name:find("M9")) then
+            return v
         end
     end
-    if not gun then return end
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    -- Equip
-    local tool = char:FindFirstChild(gun.Name) or gun
-    if tool.Parent ~= char then
-        LocalPlayer.Character.Humanoid:EquipTool(tool)
+    -- Se não estiver na mão, tenta equipar da backpack
+    for _,v in pairs(LocalPlayer.Backpack:GetChildren()) do
+        if v:IsA("Tool") and (v.Name:find("Remington") or v.Name:find("AK") or v.Name:find("M9")) then
+            LocalPlayer.Character.Humanoid:EquipTool(v)
+            wait(0.3)
+            return v
+        end
     end
-    -- Atira no HumanoidRootPart do alvo
-    local hrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    for i=1,2 do
-        Replicated.Events.HitPart:FireServer(hrp, hrp.Position, hrp, math.random(3000,4000), tool)
+    return nil
+end
+
+local function killPlayer(target)
+    local gun = getEquippedGun()
+    if not gun then return end
+    local char = target.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") or char.Humanoid.Health <= 0 then
+        return
+    end
+    local part = char.HumanoidRootPart
+    for i=1,5 do
+        Replicated.Events.HitPart:FireServer(part, part.Position, part, math.random(3000,4000), gun)
     end
 end
 
--- Função de auto arrest
+-- AUTO ARREST
 function arrestPlayer(target)
     if LocalPlayer.Team.Name ~= "Guards" then return end
     local char = LocalPlayer.Character
@@ -140,69 +144,52 @@ function arrestPlayer(target)
     Replicated.Events.arrest:FireServer(target.Character.HumanoidRootPart)
 end
 
--- Speed
-function setSpeed(state)
-    speedActive = state
-    if state then
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = walkSpeed
+-- AUTO GUN (MELHORADO: REMOTE + TOUCH)
+local autoGunCooldown = false
+function autoGun()
+    if autoGunCooldown then return end
+    autoGunCooldown = true
+    local guns = {"Remington 870", "M9", "AK-47"}
+    -- 1. Tenta pelo Remote (se aberto)
+    local handler = Replicated:FindFirstChild("ItemHandler")
+    if handler and handler:IsA("RemoteFunction") then
+        for _,gun in ipairs(guns) do
+            pcall(function()
+                handler:InvokeServer(gun)
+                wait(0.1)
+            end)
         end
-    else
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = 16
-        end
+        wait(0.4)
     end
-end
-
--- Fly (simples, estilo noclip/fly, segura espaço para subir, shift para descer)
-local flyConn
-function setFly(state)
-    flyActive = state
+    -- 2. Tenta tocando fisicamente nas armas
+    local gunParts = {
+        Workspace.Prison_ITEMS.giver:FindFirstChild("Remington 870"),
+        Workspace.Prison_ITEMS.giver:FindFirstChild("M9"),
+        Workspace.Prison_ITEMS.giver:FindFirstChild("AK-47"),
+    }
     local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    if state then
-        local bp = Instance.new("BodyPosition", char.HumanoidRootPart)
-        bp.Name = "DeltaFly"
-        bp.MaxForce = Vector3.new(1e6,1e6,1e6)
-        bp.D = 20
-        bp.P = 10000
-        flyConn = RunService.RenderStepped:Connect(function()
-            local direction = Vector3.new()
-            if UIS:IsKeyDown(Enum.KeyCode.W) then direction = direction + (Camera.CFrame.LookVector * flySpeed) end
-            if UIS:IsKeyDown(Enum.KeyCode.S) then direction = direction - (Camera.CFrame.LookVector * flySpeed) end
-            if UIS:IsKeyDown(Enum.KeyCode.A) then direction = direction - (Camera.CFrame.RightVector * flySpeed) end
-            if UIS:IsKeyDown(Enum.KeyCode.D) then direction = direction + (Camera.CFrame.RightVector * flySpeed) end
-            if UIS:IsKeyDown(Enum.KeyCode.Space) then direction = direction + Vector3.new(0,flySpeed,0) end
-            if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then direction = direction - Vector3.new(0,flySpeed,0) end
-            bp.Position = char.HumanoidRootPart.Position + direction
-            char.HumanoidRootPart.Velocity = Vector3.new()
-        end)
-        char.Humanoid.PlatformStand = true
-    else
-        if char:FindFirstChild("DeltaFly") then char.DeltaFly:Destroy() end
-        if flyConn then pcall(function() flyConn:Disconnect() end) flyConn = nil end
-        if char:FindFirstChildOfClass("Humanoid") then char:FindFirstChildOfClass("Humanoid").PlatformStand = false end
-    end
-end
-
--- Teleport (marca posição ao clicar botão, teleporta ao clicar de novo)
-function setTeleport()
-    if not teleportPos then
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            teleportPos = LocalPlayer.Character.HumanoidRootPart.Position
-            btnTeleport.Text = "Teleport: Clique para teleportar"
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        local oldPos = char.HumanoidRootPart.CFrame
+        for _,part in ipairs(gunParts) do
+            if part and part:FindFirstChild("ITEMPICKUP") then
+                char.HumanoidRootPart.CFrame = CFrame.new(part.ITEMPICKUP.Position + Vector3.new(0,2,0))
+                wait(0.25)
+                firetouchinterest(char.HumanoidRootPart, part.ITEMPICKUP, 0)
+                wait(0.15)
+                firetouchinterest(char.HumanoidRootPart, part.ITEMPICKUP, 1)
+                wait(0.15)
+            end
         end
-    else
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(teleportPos)
-        end
-        teleportPos = nil
-        btnTeleport.Text = "Teleport: Click to Mark"
+        char.HumanoidRootPart.CFrame = oldPos
     end
+    wait(4) -- cooldown para não bugar
+    autoGunCooldown = false
 end
 
 -- LOOP PRINCIPAL
 RunService.RenderStepped:Connect(function()
+    local ativo = showNome or showCaixa or showLinha
+    status.Text = (ativo or autoKill or autoArrest or autoGun) and "Status: Ativo" or "Status: Desativado"
     -- Remove quem saiu
     for plr,_ in pairs(ESPObjects) do
         if not Players:FindFirstChild(plr.Name) then
@@ -218,7 +205,7 @@ RunService.RenderStepped:Connect(function()
     -- ESP
     for plr,objs in pairs(ESPObjects) do
         local char = plr.Character
-        local show = char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0
+        local show = ativo and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0
         local isEnemy = not teamCheck or (plr.Team ~= LocalPlayer.Team)
         local color = getTeamColor(plr)
         -- Nome
@@ -268,7 +255,7 @@ RunService.RenderStepped:Connect(function()
                 objs.Line.Visible = true
             end
         end
-        if not show or not isEnemy then
+        if not show or not isEnemy or not ativo then
             objs.Box.Visible = false
             objs.Line.Visible = false
             objs.Text.Visible = false
@@ -277,11 +264,15 @@ RunService.RenderStepped:Connect(function()
 
     -- AUTO KILL
     if autoKill then
-        for _,target in ipairs(Players:GetPlayers()) do
-            if target ~= LocalPlayer and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Team ~= LocalPlayer.Team and target.Character:FindFirstChild("Humanoid") and target.Character.Humanoid.Health > 0 then
-                local dist = (LocalPlayer.Character.HumanoidRootPart.Position - target.Character.HumanoidRootPart.Position).Magnitude
-                if dist < 80 then
-                    killPlayer(target)
+        local lpChar = LocalPlayer.Character
+        if not lpChar or not lpChar:FindFirstChild("HumanoidRootPart") then return end
+        for _,plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+                if (not teamCheck or plr.Team ~= LocalPlayer.Team) then
+                    local dist = (lpChar.HumanoidRootPart.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+                    if dist < 80 then
+                        killPlayer(plr)
+                    end
                 end
             end
         end
@@ -298,22 +289,11 @@ RunService.RenderStepped:Connect(function()
 
     -- AUTO GUN
     if autoGun then
-        takeGuns()
-    end
-
-    -- SPEED
-    if speedActive and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-        if LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed ~= walkSpeed then
-            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = walkSpeed
-        end
-    elseif not speedActive and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-        if LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed ~= 16 then
-            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = 16
-        end
+        autoGun()
     end
 end)
 
--- Botões
+-- BOTÕES
 btnNome.MouseButton1Click:Connect(function()
     showNome = not showNome
     btnNome.Text = "ESP Nome: " .. (showNome and "ON" or "OFF")
@@ -342,29 +322,8 @@ btnAutoGun.MouseButton1Click:Connect(function()
     autoGun = not autoGun
     btnAutoGun.Text = "Auto Gun: " .. (autoGun and "ON" or "OFF")
 end)
-btnSpeed.MouseButton1Click:Connect(function()
-    speedActive = not speedActive
-    btnSpeed.Text = "Speed: " .. (speedActive and "ON" or "OFF")
-    setSpeed(speedActive)
-end)
-btnFly.MouseButton1Click:Connect(function()
-    flyActive = not flyActive
-    btnFly.Text = "Fly: " .. (flyActive and "ON" or "OFF")
-    setFly(flyActive)
-end)
-btnTeleport.MouseButton1Click:Connect(function()
-    setTeleport()
-end)
 
+-- Limpa ESP ao sair
 Players.PlayerRemoving:Connect(function(plr)
     removeDrawingESP(plr)
-end)
-
--- Hotkey para ativar/desativar fly (F)
-UIS.InputBegan:Connect(function(input, gp)
-    if input.KeyCode == Enum.KeyCode.F and not gp then
-        flyActive = not flyActive
-        btnFly.Text = "Fly: " .. (flyActive and "ON" or "OFF")
-        setFly(flyActive)
-    end
 end)
