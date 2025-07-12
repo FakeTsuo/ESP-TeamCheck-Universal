@@ -1,5 +1,5 @@
---// Simples ESP com Interface e Team Check para Prison Life
---// Autorizado apenas para testes
+--// ESP Simples com TeamCheck, Nome, Caixa e Tracer (não preenchida)
+--// Interface simples já incluída
 
 -- Interface básica
 local ScreenGui = Instance.new("ScreenGui")
@@ -47,49 +47,136 @@ StatusLabel.TextSize = 14
 local ESP_Active = false
 local TeamCheck = true
 
--- Função para criar/destruir ESP
+-- Funções auxiliares
+local lp = game.Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local function getTeamColor(plr)
+    if plr.Team and plr.Team.TeamColor then
+        local c = plr.Team.TeamColor.Color
+        return Color3.new(c.R, c.G, c.B)
+    end
+    -- fallback: vermelho
+    return Color3.new(1,0,0)
+end
+
+-- Desenho ESP
+local Drawing = Drawing or getgenv().Drawing -- para exploits que suportam Drawing API
+
 local ESP_Objects = {}
 
 function ClearESP()
     for _, obj in pairs(ESP_Objects) do
-        if obj and obj.Parent then
-            obj:Destroy()
+        for _,v in pairs(obj) do
+            if v and v.Remove then v:Remove()
+            elseif v and v.Destroy then v:Destroy()
+            end
         end
     end
     ESP_Objects = {}
 end
 
+function WorldToViewport(pos)
+    local p, onscreen = camera:WorldToViewportPoint(pos)
+    return Vector2.new(p.X, p.Y), onscreen, p
+end
+
 function CreateESP()
     ClearESP()
     for _, plr in pairs(game.Players:GetPlayers()) do
-        if plr ~= game.Players.LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            if TeamCheck and (plr.Team == game.Players.LocalPlayer.Team) then
+        if plr ~= lp and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+            if TeamCheck and (plr.Team == lp.Team) then
                 continue
             end
-            local Billboard = Instance.new("BillboardGui", game.CoreGui)
-            Billboard.Adornee = plr.Character.HumanoidRootPart
-            Billboard.Size = UDim2.new(0,100,0,30)
-            Billboard.AlwaysOnTop = true
-            Billboard.Name = "ESP_Billboard_"..plr.Name
+            local color = getTeamColor(plr)
 
-            local NameLabel = Instance.new("TextLabel", Billboard)
-            NameLabel.Size = UDim2.new(1,0,1,0)
-            NameLabel.BackgroundTransparency = 1
-            NameLabel.Text = plr.Name
-            NameLabel.TextColor3 = Color3.new(1,0,0)
-            NameLabel.TextStrokeTransparency = 0
-            NameLabel.Font = Enum.Font.SourceSansBold
-            NameLabel.TextSize = 16
+            local box = Drawing.new("Square")
+            box.Thickness = 2
+            box.Filled = false
+            box.Color = color
+            box.Visible = false
 
-            table.insert(ESP_Objects, Billboard)
+            local tracer = Drawing.new("Line")
+            tracer.Thickness = 2
+            tracer.Color = color
+            tracer.Visible = false
+
+            local name = Drawing.new("Text")
+            name.Text = plr.Name
+            name.Size = 16
+            name.Center = true
+            name.Outline = true
+            name.Color = color
+            name.Visible = false
+
+            ESP_Objects[plr] = {Box=box, Tracer=tracer, Name=name, Player=plr}
         end
     end
 end
 
 function UpdateESP()
-    ClearESP()
-    if ESP_Active then
-        CreateESP()
+    if not ESP_Active then
+        ClearESP()
+        return
+    end
+
+    for _, obj in pairs(ESP_Objects) do
+        local plr = obj.Player
+        local char = plr.Character
+        if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
+            if TeamCheck and (plr.Team == lp.Team) then
+                obj.Box.Visible = false
+                obj.Tracer.Visible = false
+                obj.Name.Visible = false
+                continue
+            end
+            local hrp = char.HumanoidRootPart
+            local pos, onscreen, _ = WorldToViewport(hrp.Position)
+            if onscreen then
+                -- Caixa: calcular altura e largura baseado no HRP e a cabeça/pé
+                local head = char:FindFirstChild("Head")
+                local leg
+                for _,p in pairs(char:GetChildren()) do
+                    if p:IsA("BasePart") and (not leg or p.Position.Y < leg.Position.Y) then
+                        leg = p
+                    end
+                end
+                local headPos = head and head.Position or hrp.Position + Vector3.new(0,2,0)
+                local legPos = leg and leg.Position or hrp.Position - Vector3.new(0,2,0)
+                local head2D, onscreen1 = WorldToViewport(headPos)
+                local leg2D, onscreen2 = WorldToViewport(legPos)
+                if onscreen1 and onscreen2 then
+                    local boxHeight = math.abs(head2D.Y - leg2D.Y)
+                    local boxWidth = boxHeight/2
+                    obj.Box.Position = Vector2.new(pos.X - boxWidth/2, head2D.Y)
+                    obj.Box.Size = Vector2.new(boxWidth, boxHeight)
+                    obj.Box.Color = getTeamColor(plr)
+                    obj.Box.Visible = true
+                else
+                    obj.Box.Visible = false
+                end
+
+                -- Tracer: do centro da base da tela até HRP
+                local screenSize = camera.ViewportSize
+                obj.Tracer.From = Vector2.new(screenSize.X/2, screenSize.Y-10)
+                obj.Tracer.To = pos
+                obj.Tracer.Color = getTeamColor(plr)
+                obj.Tracer.Visible = true
+
+                -- Nome
+                obj.Name.Position = Vector2.new(pos.X, pos.Y - 30)
+                obj.Name.Color = getTeamColor(plr)
+                obj.Name.Visible = true
+            else
+                obj.Box.Visible = false
+                obj.Tracer.Visible = false
+                obj.Name.Visible = false
+            end
+        else
+            obj.Box.Visible = false
+            obj.Tracer.Visible = false
+            obj.Name.Visible = false
+        end
     end
 end
 
@@ -98,28 +185,36 @@ ESPButton.MouseButton1Click:Connect(function()
     ESP_Active = not ESP_Active
     ESPButton.Text = ESP_Active and "Desativar ESP" or "Ativar ESP"
     StatusLabel.Text = ESP_Active and "Status: ESP Ativado" or "Status: ESP Desativado"
-    UpdateESP()
+    if ESP_Active then
+        CreateESP()
+    else
+        ClearESP()
+    end
 end)
 
 -- Botão para ativar/desativar Team Check
 TeamCheckButton.MouseButton1Click:Connect(function()
     TeamCheck = not TeamCheck
     TeamCheckButton.Text = "Team Check: "..(TeamCheck and "ON" or "OFF")
-    UpdateESP()
+    if ESP_Active then
+        CreateESP()
+    end
 end)
 
 -- Atualiza ESP em mudanças de players/char
-game.Players.PlayerAdded:Connect(UpdateESP)
-game.Players.PlayerRemoving:Connect(UpdateESP)
-game.Players.LocalPlayer:GetPropertyChangedSignal("Team"):Connect(UpdateESP)
 game.Players.PlayerAdded:Connect(function(plr)
-    plr:GetPropertyChangedSignal("Team"):Connect(UpdateESP)
+    plr.CharacterAdded:Connect(function()
+        if ESP_Active then CreateESP() end
+    end)
+end)
+game.Players.PlayerRemoving:Connect(function()
+    if ESP_Active then CreateESP() end
+end)
+lp:GetPropertyChangedSignal("Team"):Connect(function()
+    if ESP_Active then CreateESP() end
 end)
 game:GetService("RunService").RenderStepped:Connect(function()
     if ESP_Active then
         UpdateESP()
     end
 end)
-
--- Limpeza ao fechar
-ScreenGui.Parent = game.CoreGui
