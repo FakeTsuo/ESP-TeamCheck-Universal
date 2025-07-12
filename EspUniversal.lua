@@ -1,20 +1,23 @@
--- ESP para Prison Life (Delta, KRNL, Synapse) - Botões para Nome, Caixa, Linha e Team Check
+-- Prison Life Script Ultimate (Delta/KRNL/Synapse)
+-- ESP modular, Auto Kill, Auto Arrest, Auto Gun, interface de botões
 
--- Remove interface antiga
-pcall(function() game:GetService("CoreGui")["SimpleESP_GUI"]:Destroy() end)
+-- REMOVE INTERFACE ANTIGA
+pcall(function() game:GetService("CoreGui")["PLifeUltimateGUI"]:Destroy() end)
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
 local RunService = game:GetService("RunService")
+local Replicated = game:GetService("ReplicatedStorage")
+local Mouse = LocalPlayer:GetMouse()
 
--- Interface
+-- INTERFACE
 local gui = Instance.new("ScreenGui", game:GetService("CoreGui"))
-gui.Name = "SimpleESP_GUI"
-
+gui.Name = "PLifeUltimateGUI"
 local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.new(0,230,0,240)
-frame.Position = UDim2.new(0,20,0,200)
+frame.Size = UDim2.new(0,230,0,390)
+frame.Position = UDim2.new(0,20,0,180)
 frame.BackgroundColor3 = Color3.fromRGB(40,40,40)
 frame.Active = true
 frame.Draggable = true
@@ -35,20 +38,24 @@ local btnNome = makeBtn("ESP Nome: ON",10)
 local btnCaixa = makeBtn("ESP Caixa: ON",56)
 local btnLinha = makeBtn("ESP Linha: ON",102)
 local btnTeam = makeBtn("Team Check: ON",148)
+local btnAutoKill = makeBtn("Auto Kill: OFF",194)
+local btnAutoArrest = makeBtn("Auto Arrest: OFF",240)
+local btnAutoGun = makeBtn("Auto Gun: OFF",286)
 
 local status = Instance.new("TextLabel", frame)
 status.Size = UDim2.new(0,210,0,26)
-status.Position = UDim2.new(0,10,0,192)
+status.Position = UDim2.new(0,10,0,332)
 status.BackgroundTransparency = 1
 status.Text = "Status: Ativo"
 status.TextColor3 = Color3.new(1,1,1)
 status.Font = Enum.Font.SourceSans
 status.TextSize = 16
 
--- Estados
+-- ESTADOS
 local showNome, showCaixa, showLinha, teamCheck = true, true, true, true
+local autoKill, autoArrest, autoGun = false, false, false
 
--- Team color
+-- UTILS
 local function getTeamColor(plr)
     if plr.Team and plr.Team.TeamColor then
         local c = plr.Team.TeamColor.Color
@@ -57,9 +64,8 @@ local function getTeamColor(plr)
     return Color3.new(1,0,0)
 end
 
--- Drawing para Delta (e Synapse/KRNL)
+-- ESP (Drawing API)
 local ESPObjects = {}
-
 function clearESP()
     for _,objs in pairs(ESPObjects) do
         for _,v in pairs(objs) do
@@ -69,7 +75,6 @@ function clearESP()
     end
     ESPObjects = {}
 end
-
 function makeDrawingESP(plr)
     if ESPObjects[plr] then return end
     local box = Drawing.new("Square")
@@ -86,7 +91,6 @@ function makeDrawingESP(plr)
     txt.Visible = false
     ESPObjects[plr] = {Box=box, Line=line, Text=txt, Player=plr}
 end
-
 function removeDrawingESP(plr)
     if ESPObjects[plr] then
         for _,v in pairs(ESPObjects[plr]) do
@@ -97,9 +101,53 @@ function removeDrawingESP(plr)
     end
 end
 
+-- AUTO KILL
+function killPlayer(target)
+    local gun
+    for _,i in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        if i.Name:find("Remington") or i.Name:find("AK") or i.Name:find("M9") then
+            gun = i; break
+        end
+    end
+    if not gun then return end
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    -- Equip
+    local tool = char:FindFirstChild(gun.Name) or gun
+    if tool.Parent ~= char then
+        LocalPlayer.Character.Humanoid:EquipTool(tool)
+    end
+    -- Atira no HumanoidRootPart do alvo
+    local hrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    for i=1,3 do
+        Replicated.Events.HitPart:FireServer(hrp, hrp.Position, hrp, math.random(3000,4000), tool)
+    end
+end
+
+-- AUTO ARREST
+function arrestPlayer(target)
+    if LocalPlayer.Team.Name ~= "Guards" then return end
+    local char = LocalPlayer.Character
+    local h = char and char:FindFirstChild("HumanoidRootPart")
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not h or not th then return end
+    if (h.Position - th.Position).Magnitude > 12 then return end
+    Replicated.Events.arrest:FireServer(target.Character.HumanoidRootPart)
+end
+
+-- AUTO GUN
+function takeGuns()
+    local guns = {"Remington 870","AK-47","M9"}
+    for _,gun in ipairs(guns) do
+        Replicated.ItemHandler:InvokeServer(gun)
+    end
+end
+
+-- LOOP PRINCIPAL
 RunService.RenderStepped:Connect(function()
     local ativo = showNome or showCaixa or showLinha
-    status.Text = ativo and "Status: Ativo" or "Status: Desativado"
+    status.Text = (ativo or autoKill or autoArrest or autoGun) and "Status: Ativo" or "Status: Desativado"
     -- Remove quem saiu
     for plr,_ in pairs(ESPObjects) do
         if not Players:FindFirstChild(plr.Name) then
@@ -112,7 +160,7 @@ RunService.RenderStepped:Connect(function()
             makeDrawingESP(plr)
         end
     end
-    -- Atualiza cada
+    -- ESP
     for plr,objs in pairs(ESPObjects) do
         local char = plr.Character
         local show = ativo and char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0
@@ -171,27 +219,35 @@ RunService.RenderStepped:Connect(function()
             objs.Text.Visible = false
         end
     end
+
+    -- AUTO KILL
+    if autoKill then
+        for _,target in ipairs(Players:GetPlayers()) do
+            if target ~= LocalPlayer and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Team ~= LocalPlayer.Team and target.Character:FindFirstChild("Humanoid") and target.Character.Humanoid.Health > 0 then
+                local dist = (LocalPlayer.Character.HumanoidRootPart.Position - target.Character.HumanoidRootPart.Position).Magnitude
+                if dist < 80 then
+                    killPlayer(target)
+                end
+            end
+        end
+    end
+
+    -- AUTO ARREST
+    if autoArrest and LocalPlayer.Team and LocalPlayer.Team.Name == "Guards" then
+        for _,target in ipairs(Players:GetPlayers()) do
+            if target ~= LocalPlayer and target.Team and target.Team.Name=="Criminals" and target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character:FindFirstChild("Humanoid") and target.Character.Humanoid.Health > 0 then
+                arrestPlayer(target)
+            end
+        end
+    end
+
+    -- AUTO GUN
+    if autoGun then
+        takeGuns()
+    end
 end)
 
--- Botões
+-- BOTÕES
 btnNome.MouseButton1Click:Connect(function()
-    showNome = not showNome
-    btnNome.Text = "ESP Nome: " .. (showNome and "ON" or "OFF")
-end)
-btnCaixa.MouseButton1Click:Connect(function()
-    showCaixa = not showCaixa
-    btnCaixa.Text = "ESP Caixa: " .. (showCaixa and "ON" or "OFF")
-end)
-btnLinha.MouseButton1Click:Connect(function()
-    showLinha = not showLinha
-    btnLinha.Text = "ESP Linha: " .. (showLinha and "ON" or "OFF")
-end)
-btnTeam.MouseButton1Click:Connect(function()
-    teamCheck = not teamCheck
-    btnTeam.Text = "Team Check: " .. (teamCheck and "ON" or "OFF")
-end)
-
--- Limpa ESP ao sair
-Players.PlayerRemoving:Connect(function(plr)
-    removeDrawingESP(plr)
-end)
+    showNome = not_
+
